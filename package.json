@@ -1,0 +1,19 @@
+{
+  "name": "marble-odyssey",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "滚珠奇旅 · Marble Odyssey — a stylized 3D marble rolling adventure built with Three.js + cannon-es",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "cannon-es": "^0.20.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}
