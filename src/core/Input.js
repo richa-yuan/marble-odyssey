@@ -10,8 +10,7 @@ export class Input {
     this.camPitchDelta = 0
     this.respawnPressed = false
     this.pausePressed = false
-
-    // 触屏状态
+    this.audioUnlockCb = null
     this.touchActive = false
     this._joyId = null
     this._camId = null
@@ -62,6 +61,15 @@ export class Input {
     const jumpBtn = document.getElementById('btn-jump')
     jumpBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.jumpPressed = true; this.jumpHeld = true })
     jumpBtn.addEventListener('pointerup', () => { this.jumpHeld = false })
+    const respawnBtn = document.getElementById('btn-respawn-touch')
+    respawnBtn.addEventListener('pointerdown', (e) => { e.stopPropagation(); this.respawnPressed = true })
+
+    // iOS 音频解锁 + 阻止长按菜单/双击缩放
+    const unlock = () => { this.audioUnlockCb && this.audioUnlockCb() }
+    window.addEventListener('pointerdown', unlock, { once: true })
+    window.addEventListener('touchend', unlock, { once: true })
+    window.addEventListener('contextmenu', (e) => e.preventDefault())
+    document.addEventListener('gesturestart', (e) => e.preventDefault())
   }
 
   _touchStart(e) {

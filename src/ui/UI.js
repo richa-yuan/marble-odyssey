@@ -43,7 +43,8 @@ export class UI {
   }
 
   _detectTouch() {
-    const isTouch = window.matchMedia('(pointer: coarse)').matches
+    const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
+    this.isTouch = isTouch
     if (isTouch) this.$touch.classList.remove('hidden')
   }
 

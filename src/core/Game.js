@@ -19,6 +19,10 @@ import { LEVELS } from '../levels/index.js'
 
 const STATE = { MENU: 'menu', PLAYING: 'playing', PAUSED: 'paused', WIN: 'win' }
 
+// 移动端检测:触屏或窄屏
+const IS_MOBILE = (typeof window !== 'undefined') &&
+  (window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window)
+
 export class Game {
   constructor() {
     this.state = STATE.MENU
@@ -29,11 +33,20 @@ export class Game {
     this.gemTotal = 0
     this.streak = 0
     this.streakTimer = 0
+    this.isMobile = IS_MOBILE
+    this.particleScale = IS_MOBILE ? 0.55 : 1
+    this._resScale = 1
+    this._fpsAcc = 0
+    this._fpsN = 0
+    this._fpsCheckT = 0
+    this._sunDir = new THREE.Vector3(0.4, 0.6, -0.5).normalize()
+    this._shadowCenter = new THREE.Vector3()
 
-    // 渲染器
+    // 渲染器(移动端:降像素比,后期统一低分辨率)
     const canvas = document.getElementById('game-canvas')
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this._basePixelRatio = Math.min(window.devicePixelRatio, IS_MOBILE ? 1.5 : 2)
+    this.renderer.setPixelRatio(this._basePixelRatio)
     this.renderer.setSize(window.innerWidth, window.innerHeight)
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
@@ -42,9 +55,11 @@ export class Game {
 
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000)
+    this._updateFov()
 
     // 后期:bloom + 输出
     this.composer = new EffectComposer(this.renderer)
+    this.composer.setPixelRatio(this._basePixelRatio)
     this.composer.addPass(new RenderPass(this.scene, this.camera))
     this.bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.4, 0.55, 0.82)
     this.composer.addPass(this.bloom)
@@ -55,15 +70,16 @@ export class Game {
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
     this.scene.environmentIntensity = 0.12
 
-    // 灯光
+    // 灯光:阴影相机跟随滚珠,小范围高清晰度(移动端 1024 / 桌面 2048)
     this.hemiLight = new THREE.HemisphereLight('#ffffff', '#444444', 0.6)
     this.scene.add(this.hemiLight)
     this.sunLight = new THREE.DirectionalLight('#ffffff', 2.4)
     this.sunLight.castShadow = true
-    this.sunLight.shadow.mapSize.set(2048, 2048)
+    const shadowMapSize = IS_MOBILE ? 1024 : 2048
+    this.sunLight.shadow.mapSize.set(shadowMapSize, shadowMapSize)
     this.sunLight.shadow.camera.near = 10
-    this.sunLight.shadow.camera.far = 260
-    const S = 68
+    this.sunLight.shadow.camera.far = 160
+    const S = IS_MOBILE ? 20 : 24
     this.sunLight.shadow.camera.left = -S
     this.sunLight.shadow.camera.right = S
     this.sunLight.shadow.camera.top = S
@@ -76,6 +92,7 @@ export class Game {
     // 子系统
     this.input = new Input(canvas)
     this.audio = new AudioMgr()
+    this.input.audioUnlockCb = () => this.audio.ensure()
     this.cameraRig = new CameraRig(this.camera)
     this.ui = new UI(this)
     this.trail = null
@@ -102,9 +119,17 @@ export class Game {
   _onResize() {
     const w = window.innerWidth, h = window.innerHeight
     this.camera.aspect = w / h
-    this.camera.updateProjectionMatrix()
+    this._updateFov()
     this.renderer.setSize(w, h)
+    this.composer.setPixelRatio(this._basePixelRatio * this._resScale)
     this.composer.setSize(w, h)
+  }
+
+  // 竖屏时拉宽视场,保证前方道路可见
+  _updateFov() {
+    const aspect = this.camera.aspect
+    this.camera.fov = aspect < 0.75 ? 72 : aspect < 1.1 ? 64 : 55
+    this.camera.updateProjectionMatrix()
   }
 
   _bindGlobalKeys() {
@@ -142,7 +167,7 @@ export class Game {
     this.scene.add(sky)
     this.skyObjects.push(sky)
     if (cfg.stars) {
-      const stars = makeStars(index === 5 ? 1500 : 800)
+      const stars = makeStars(Math.round((index === 5 ? 1500 : 800) * Math.max(0.5, this.particleScale)))
       this.scene.add(stars)
       this.skyObjects.push(stars)
     }
@@ -152,19 +177,18 @@ export class Game {
       this.skyObjects.push(aur)
     }
 
-    // 阳光方向对齐天空太阳
-    const sunDir = new THREE.Vector3(...cfg.sky.sunDir).normalize()
-    const center = new THREE.Vector3(4, 0, 55)
-    this.sunLight.position.copy(center).addScaledVector(sunDir, 90)
-    this.sunLight.target.position.copy(center)
+    // 阳光方向对齐天空太阳(阴影相机改为跟随滚珠,这里只存方向)
+    this._sunDir.set(...cfg.sky.sunDir).normalize()
+    this._shadowCenter.set(4, 0, 55)
 
     // 关卡本体
     this.level = new LevelBuilder(this.scene, this.physics, cfg.theme)
     cfg.build(this.level)
     this.gemTotal = this.level.gems.length
 
-    // 粒子
-    this.ambient = new AmbientParticles(cfg.ambient)
+    // 粒子(移动端减少数量)
+    const ambCfg = { ...cfg.ambient, count: Math.max(60, Math.round(cfg.ambient.count * this.particleScale)) }
+    this.ambient = new AmbientParticles(ambCfg)
     this.scene.add(this.ambient.points)
     this.burst = new BurstPool(this.scene)
     this.trail = new BallTrail(this.scene)
@@ -188,6 +212,10 @@ export class Game {
       this.cameraRig.beginIntro(this.ball.body.position)
       this.audio.ambient(cfg.music)
       this.ui.toast(cfg.name + ' · ' + cfg.en, 2200)
+      if (this.isMobile && !this._touchHintShown) {
+        this._touchHintShown = true
+        setTimeout(() => this.ui.toast('左侧摇杆移动 · 右侧跳跃 · 拖动屏幕转视角', 3200), 2300)
+      }
     }
   }
 
@@ -308,6 +336,30 @@ export class Game {
     )
 
     if (this.state === STATE.PLAYING) this.ui.updateHUD(this.levelTime, this.gemCount)
+
+    // 阴影相机跟随滚珠(小范围 → 高清晰度)
+    if (this.ball) this._shadowCenter.set(this.ball.body.position.x, this.ball.body.position.y, this.ball.body.position.z)
+    else this._shadowCenter.lerp(new THREE.Vector3(4, 0, 55), Math.min(1, dt * 2))
+    this.sunLight.position.copy(this._shadowCenter).addScaledVector(this._sunDir, 60)
+    this.sunLight.target.position.copy(this._shadowCenter)
+
+    // 自适应分辨率:帧率过低则逐步降档,回升则升档
+    this._fpsAcc += dt; this._fpsN++
+    this._fpsCheckT += dt
+    if (this._fpsCheckT >= 2.5 && this._fpsN > 10) {
+      const avg = this._fpsN / this._fpsAcc
+      if (avg < 34 && this._resScale > 0.6) {
+        this._resScale = Math.max(0.6, this._resScale - 0.15)
+        this.composer.setPixelRatio(this._basePixelRatio * this._resScale)
+        this.composer.setSize(window.innerWidth, window.innerHeight)
+      } else if (avg > 56 && this._resScale < 1) {
+        this._resScale = Math.min(1, this._resScale + 0.15)
+        this.composer.setPixelRatio(this._basePixelRatio * this._resScale)
+        this.composer.setSize(window.innerWidth, window.innerHeight)
+      }
+      this._fpsAcc = 0; this._fpsN = 0; this._fpsCheckT = 0
+    }
+
     this.composer.render()
     this.input.endFrame()
   }
