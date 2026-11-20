@@ -13,6 +13,7 @@ import { Input } from './Input.js'
 import { AudioMgr } from './Audio.js'
 import { makeSky, makeStars, makeAurora, updateSkyObjects } from './Sky.js'
 import { AmbientParticles, BurstPool, BallTrail } from './Particles.js'
+import { TiltControl } from './Tilt.js'
 import { Ball } from '../entities/Ball.js'
 import { UI } from '../ui/UI.js'
 import { LEVELS } from '../levels/index.js'
@@ -91,6 +92,7 @@ export class Game {
 
     // 子系统
     this.input = new Input(canvas)
+    this.tilt = new TiltControl()
     this.audio = new AudioMgr()
     this.input.audioUnlockCb = () => this.audio.ensure()
     this.cameraRig = new CameraRig(this.camera)
@@ -302,6 +304,12 @@ export class Game {
 
     this.input.sampleMove()
     this.input.pollGamepad(dt)
+    // 重力感应:无主动输入时接管方向(平滑过渡,避免抖动)
+    if (this.tilt.enabled && !this.input.isManualControl()) {
+      const k = 1 - Math.exp(-dt * 12)
+      this.input.move.x += (this.tilt.move.x - this.input.move.x) * k
+      this.input.move.z += (this.tilt.move.z - this.input.move.z) * k
+    }
 
     // 全局按键
     if (this.input.pausePressed && this.state !== STATE.MENU && this.state !== STATE.WIN) this.togglePause()

@@ -46,6 +46,50 @@ export class UI {
     const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window
     this.isTouch = isTouch
     if (isTouch) this.$touch.classList.remove('hidden')
+    // 重力感应按钮:仅触屏设备显示,但监听始终挂载(便于调试与触屏笔记本)
+    if ('DeviceOrientationEvent' in window) {
+      const tiltBtn = document.getElementById('btn-tilt')
+      let holdTimer = null
+      let holdFired = false
+      tiltBtn.addEventListener('pointerdown', () => {
+        holdFired = false
+        holdTimer = setTimeout(() => { holdFired = true; this._onTiltLongPress() }, 550)
+      })
+      tiltBtn.addEventListener('pointerup', () => {
+        clearTimeout(holdTimer)
+        if (holdFired) return
+        this._onTiltToggle()
+      })
+      tiltBtn.addEventListener('pointerleave', () => clearTimeout(holdTimer))
+      if (isTouch) tiltBtn.classList.remove('hidden')
+    }
+  }
+
+  async _onTiltToggle() {
+    const btn = document.getElementById('btn-tilt')
+    const tilt = this.game.tilt
+    if (tilt.enabled) {
+      tilt.disable()
+      btn.classList.remove('active')
+      this.toast('📱 重力感应已关闭', 1500)
+      return
+    }
+    const r = await tilt.enable()
+    if (r.ok) {
+      btn.classList.add('active')
+      this.toast('📱 重力感应开启:倾斜手机控制方向,长按本键校准水平', 3200)
+    } else if (r.reason === 'denied') {
+      this.toast('传感器权限被拒绝,请在浏览器设置中允许「动作与方向」', 3200)
+    } else {
+      this.toast('此设备不支持重力感应', 2200)
+    }
+  }
+
+  _onTiltLongPress() {
+    const tilt = this.game.tilt
+    if (!tilt.enabled) return
+    tilt.calibrate()
+    this.toast('✓ 已以当前握姿校准为水平', 1800)
   }
 
   _bindButtons() {

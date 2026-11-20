@@ -11,6 +11,8 @@ export class Input {
     this.respawnPressed = false
     this.pausePressed = false
     this.audioUnlockCb = null
+    this._keysActive = false
+    this._padActive = false
     this.touchActive = false
     this._joyId = null
     this._camId = null
@@ -142,6 +144,12 @@ export class Input {
     if (len > 1) { x /= len; z /= len }
     this.move.x = x
     this.move.z = z
+    this._keysActive = len > 0
+  }
+
+  // 是否有人类主动输入(触屏摇杆 / 键盘 / 手柄)——重力感应仅在空闲时接管
+  isManualControl() {
+    return this._joyId !== null || this._keysActive || this._padActive
   }
 
   // 手柄(任天堂布局):左摇杆移动 / 右摇杆视角 / A 跳 / SELECT 回检查点
@@ -165,6 +173,9 @@ export class Input {
     if (Math.hypot(lx, ly) > 0.01) {
       this.move.x = lx
       this.move.z = ly
+      this._padActive = true
+    } else {
+      this._padActive = false
     }
 
     // 右摇杆 → 视角

@@ -83,6 +83,11 @@ html, body {
   transition: transform .15s ease, background .15s ease;
 }
 .hud-btn:hover { transform: scale(1.08); background: rgba(40,50,80,.65); }
+.hud-btn.active {
+  background: rgba(90,220,160,.35);
+  border-color: rgba(90,220,160,.85);
+  box-shadow: 0 0 14px rgba(90,220,160,.45);
+}
 
 #hud-bottom {
   position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
