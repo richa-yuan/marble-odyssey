@@ -45,6 +45,7 @@ export class Ball {
     this.grounded = false
     this.groundNormal = null
     this.coyote = 0
+    this.jumpBuffer = 0
     this.prevVy = 0
     this.squash = 0
     this.landSpeed = 0
@@ -96,9 +97,12 @@ export class Ball {
     }
     this.prevVy = this.body.velocity.y
 
-    // 跳跃
-    if (input.jumpPressed && this.coyote > 0) {
+    // 跳跃(带 0.12s 预输入缓冲:落地前一刻按跳,落地即刻起跳)
+    if (input.jumpPressed) this.jumpBuffer = 0.12
+    this.jumpBuffer = Math.max(0, this.jumpBuffer - dt)
+    if (this.jumpBuffer > 0 && this.coyote > 0) {
       this.jump()
+      this.jumpBuffer = 0
       this.coyote = 0
       return { jumped: true }
     }
@@ -110,8 +114,9 @@ export class Ball {
     if (ilen > 0.001) {
       const fx = -Math.sin(camYaw)
       const fz = -Math.cos(camYaw)
-      // right = up × forward = (fz, 0, -fx)
-      const rx = fz, rz = -fx
+      // 屏幕右方向 = f × up = (-fz, 0, fx)
+      // (相机 lookAt 后朝向 f 时,screen-right 与右手系一致;按 D 球必须滚向屏幕右侧)
+      const rx = -fz, rz = fx
       const wdx = fx * (-iz) + rx * ix
       const wdz = fz * (-iz) + rz * ix
 

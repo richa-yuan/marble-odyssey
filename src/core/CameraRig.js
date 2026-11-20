@@ -14,6 +14,7 @@ export class CameraRig {
     this.introT = 0
     this.introFrom = new THREE.Vector3()
     this.orbitAngle = 0
+    this.manualTimer = 0        // 手动转视角后短暂停用自动跟尾
     this._desired = new THREE.Vector3()
     this._shake = 0
   }
@@ -37,10 +38,25 @@ export class CameraRig {
 
   update(dt, ballPos, ballVel, input) {
     if (input) {
+      const manual = input.camYawDelta !== 0 || input.camPitchDelta !== 0 ||
+        (input.keys && (input.keys.has('KeyQ') || input.keys.has('KeyE')))
+      this.manualTimer = manual ? 2.2 : Math.max(0, this.manualTimer - dt)
       if (input.keys.has('KeyQ')) this.yaw += 2.2 * dt
       if (input.keys.has('KeyE')) this.yaw -= 2.2 * dt
       this.yaw += input.camYawDelta
       this.pitch = THREE.MathUtils.clamp(this.pitch + input.camPitchDelta, -1.2, 0.15)
+    }
+
+    // 任天堂式自动跟尾:滚动时相机缓慢绕到速度反方向,让「上=远离相机」始终成立
+    if (this.mode === 'follow' && this.manualTimer <= 0 && ballVel) {
+      const hv = Math.hypot(ballVel.x, ballVel.z)
+      if (hv > 2.2) {
+        const targetYaw = Math.atan2(-ballVel.x, -ballVel.z)
+        let d = targetYaw - this.yaw
+        d = Math.atan2(Math.sin(d), Math.cos(d)) // 最短路径
+        const step = Math.min(Math.abs(d), Math.min(1.5, (hv - 2.2) * 0.4) * dt)
+        this.yaw += Math.sign(d) * step
+      }
     }
 
     if (this.mode === 'orbit') {

@@ -73,13 +73,20 @@ export class Input {
   }
 
   _touchStart(e) {
+    // UI 按钮不参与摇杆/视角
+    if (e.target && e.target.closest && e.target.closest('#btn-jump,#btn-respawn-touch,.hud-btn')) return
     const joy = document.getElementById('joystick')
-    const r = joy.getBoundingClientRect()
-    const inJoy = e.clientX >= r.left - 30 && e.clientX <= r.right + 30 && e.clientY >= r.top - 30 && e.clientY <= r.bottom + 30
-    if (inJoy && this._joyId === null) {
+    // 浮动摇杆:左 60% 屏幕任意点起杆(排除右侧按钮区)
+    const inJoyZone = e.clientX < window.innerWidth * 0.6
+    if (inJoyZone && this._joyId === null) {
       this._joyId = e.pointerId
       this.touchActive = true
-      this._joyCenter = [r.left + r.width / 2, r.top + r.height / 2]
+      this._joyCenter = [e.clientX, e.clientY]
+      // 把摇杆底座平移到落点
+      const r = joy.getBoundingClientRect()
+      const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+      this._joyBaseDelta = [e.clientX - cx, e.clientY - cy]
+      joy.style.transform = `translate(${this._joyBaseDelta[0]}px, ${this._joyBaseDelta[1]}px)`
     } else if (this._camId === null) {
       this._camId = e.pointerId
       this._camLast = [e.clientX, e.clientY]
@@ -94,8 +101,16 @@ export class Input {
       const len = Math.hypot(dx, dy)
       const k = len > max ? max / len : 1
       const nx = dx * k / max, ny = dy * k / max
-      this.move.x = nx
-      this.move.z = ny
+      // 死区 + 响应曲线(手柄级手感)
+      const m = Math.hypot(nx, ny)
+      if (m < 0.12) {
+        this.move.x = 0; this.move.z = 0
+      } else {
+        const s = (m - 0.12) / 0.88
+        const scale = Math.pow(s, 1.35) / m
+        this.move.x = nx * scale
+        this.move.z = ny * scale
+      }
       const knob = document.getElementById('joystick-knob')
       knob.style.transform = `translate(calc(-50% + ${nx * max}px), calc(-50% + ${ny * max}px))`
     } else if (e.pointerId === this._camId && this._camLast) {
@@ -109,6 +124,7 @@ export class Input {
     if (e.pointerId === this._joyId) {
       this._joyId = null
       this.move.x = 0; this.move.z = 0
+      document.getElementById('joystick').style.transform = ''
       document.getElementById('joystick-knob').style.transform = 'translate(-50%, -50%)'
     }
     if (e.pointerId === this._camId) { this._camId = null; this._camLast = null }
@@ -116,7 +132,7 @@ export class Input {
 
   // 每帧开头调用:汇总键盘方向
   sampleMove() {
-    if (this._joyId !== null) return // 摇杆接管
+    if (this._joyId !== null) return // 触屏摇杆接管
     let x = 0, z = 0
     if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) z -= 1
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) z += 1
@@ -126,6 +142,47 @@ export class Input {
     if (len > 1) { x /= len; z /= len }
     this.move.x = x
     this.move.z = z
+  }
+
+  // 手柄(任天堂布局):左摇杆移动 / 右摇杆视角 / A 跳 / SELECT 回检查点
+  pollGamepad(dt) {
+    if (this._joyId !== null) return // 触屏摇杆优先
+    const pads = navigator.getGamepads ? navigator.getGamepads() : []
+    let gp = null
+    for (const p of pads) { if (p && p.connected) { gp = p; break } }
+    if (!gp) return
+
+    const dz = (v) => Math.abs(v) < 0.16 ? 0 : (v - Math.sign(v) * 0.16) / 0.84
+
+    // 左摇杆 → 移动
+    const lx = dz(gp.axes[0] || 0)
+    const ly = dz(gp.axes[1] || 0)
+    // 十字键作为补充
+    if (gp.buttons[12] && gp.buttons[12].pressed) ly = -1
+    if (gp.buttons[13] && gp.buttons[13].pressed) ly = 1
+    if (gp.buttons[14] && gp.buttons[14].pressed) lx = -1
+    if (gp.buttons[15] && gp.buttons[15].pressed) lx = 1
+    if (Math.hypot(lx, ly) > 0.01) {
+      this.move.x = lx
+      this.move.z = ly
+    }
+
+    // 右摇杆 → 视角
+    const rx = dz(gp.axes[2] || 0)
+    const ry = dz(gp.axes[3] || 0)
+    this.camYawDelta -= rx * 2.8 * dt
+    this.camPitchDelta -= ry * 2.2 * dt
+
+    // A(0) → 跳跃(上升沿触发)
+    const a = gp.buttons[0] && gp.buttons[0].pressed
+    if (a && !this._gpA) { this.jumpPressed = true }
+    this.jumpHeld = !!a
+    this._gpA = !!a
+
+    // SELECT(8) → 回检查点(上升沿)
+    const sel = gp.buttons[8] && gp.buttons[8].pressed
+    if (sel && !this._gpSel) { this.respawnPressed = true }
+    this._gpSel = !!sel
   }
 
   endFrame() {

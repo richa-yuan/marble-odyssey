@@ -301,6 +301,7 @@ export class Game {
     this.time += dt
 
     this.input.sampleMove()
+    this.input.pollGamepad(dt)
 
     // 全局按键
     if (this.input.pausePressed && this.state !== STATE.MENU && this.state !== STATE.WIN) this.togglePause()
